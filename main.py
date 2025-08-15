@@ -1,94 +1,16 @@
-from PIL import Image, ImageGrab, ImageTk
-import time
-import pyautogui
-import os
-import random
-from pathlib import Path
+from PIL import ImageGrab, ImageTk
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 import queue
 import sys
 import subprocess
+import os
 
-
-def capture(file_name: str, bbox=None):
-    screenshot = ImageGrab.grab(bbox=bbox)
-    screenshot.save(file_name, format="JPEG", subsampling=0, quality=95)
-    screenshot.close()
-
-
-def get_current_directory() -> str:
-    return os.path.dirname(os.path.realpath(__file__))
-
-
-def get_capture_directory(current_directory: str, capture_dname: str = "output") -> str:
-    return os.path.join(current_directory, capture_dname)
-
-
-def create_capture_directory(capture_directory_path: str) -> None:
-    os.makedirs(capture_directory_path, exist_ok=True)
-
-
-def capture_macro(
-    capture_directory: str,
-    start_page_no: int,
-    end_page_no: int,
-    capture_interval: float,
-    capture_area,
-    cancel_event: threading.Event,
-    progress_queue: queue.Queue,
-) -> None:
-    try:
-        for i in range(5, 0, -1):
-            if cancel_event.is_set():
-                progress_queue.put("cancelled")
-                return
-            progress_queue.put(f"{i}초 후에 캡처가 시작됩니다...")
-            time.sleep(1)
-
-        for page_no in range(start_page_no, end_page_no + 1):
-            if cancel_event.is_set():
-                progress_queue.put("cancelled")
-                return
-
-            progress_queue.put(f"{page_no} / {end_page_no} 캡처 중...")
-            formatted_page_no = f"{page_no:04}"
-            capture(
-                file_name=os.path.join(capture_directory, f"{formatted_page_no}.jpeg"),
-                bbox=capture_area,
-            )
-
-            if page_no < end_page_no:
-                pyautogui.keyDown("right")
-                time.sleep(0.1)
-                pyautogui.keyUp("right")
-                time.sleep(capture_interval + random.uniform(0, 2))
-
-        progress_queue.put("done")
-    except Exception as e:
-        progress_queue.put(f"Error: {e}")
-
-
-def create_pdf_from_images(image_dir: str, pdf_path: str):
-    images = []
-    image_files = sorted([f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg", ".jpeg"))])
-
-    if not image_files:
-        messagebox.showinfo("정보", "PDF로 변환할 이미지가 없습니다.")
-        return
-
-    for file_name in image_files:
-        image_path = os.path.join(image_dir, file_name)
-        img = Image.open(image_path)
-        if img.mode == 'RGBA':
-            img = img.convert('RGB')
-        images.append(img)
-
-    if images:
-        images[0].save(pdf_path, save_all=True, append_images=images[1:])
-        messagebox.showinfo("성공", f"PDF 파일이 저장되었습니다: {pdf_path}")
-
+# Local imports
+from utils import get_current_directory, get_capture_directory, create_capture_directory
+from capture import capture_macro
+from pdf_utils import create_pdf_from_images, create_searchable_pdf
 
 class CaptureProgressWindow(tk.Toplevel):
     def __init__(self, parent, cancel_event):
@@ -209,8 +131,12 @@ class Application(tk.Tk):
         browse_button = ttk.Button(pdf_tab, text="폴더 선택", command=self.browse_pdf_source)
         browse_button.grid(row=0, column=2, padx=5)
 
+        self.ocr_var = tk.BooleanVar()
+        ocr_checkbutton = ttk.Checkbutton(pdf_tab, text="OCR 텍스트 인식 (느림)", variable=self.ocr_var)
+        ocr_checkbutton.grid(row=1, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+
         pdf_button = ttk.Button(pdf_tab, text="PDF로 변환", command=self.convert_to_pdf)
-        pdf_button.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        pdf_button.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
     def browse_capture_folder(self):
         folder_path = filedialog.askdirectory()
@@ -342,7 +268,12 @@ class Application(tk.Tk):
             defaultextension=".pdf",
             filetypes=[("PDF Documents", "*.pdf"), ("All Files", "*.*")]
         )
-        if pdf_path:
+        if not pdf_path:
+            return
+
+        if self.ocr_var.get():
+            create_searchable_pdf(source_dir, pdf_path)
+        else:
             create_pdf_from_images(source_dir, pdf_path)
 
 

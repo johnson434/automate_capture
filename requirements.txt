@@ -1,2 +1,4 @@
 Pillow==11.3.0
 PyAutoGUI==0.9.54
+easyocr>=1.7.0
+PyMuPDF>=1.24.0
